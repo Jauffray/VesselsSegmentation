@@ -21,3 +21,6 @@ class VesselsDataset_fromfile(Dataset):
 
     def __len__(self):
         return len(self.img_names)
+
+if __name__ == "__main__":
+    print(2+2)
