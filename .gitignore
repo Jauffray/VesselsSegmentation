@@ -5,3 +5,5 @@ __pycache__/
 .ipynb_checkpoints
 # Do not push pytorch models
 .pth
+# ignore DS_Store files
+.DS_Store
