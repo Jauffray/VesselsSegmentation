@@ -1,0 +1,7 @@
+# Ignore pycharm cached stuff
+__pycache__/
+.idea/
+# Ignore notebook checkpoints
+.ipynb_checkpoints
+# Do not push pytorch models
+.pth
