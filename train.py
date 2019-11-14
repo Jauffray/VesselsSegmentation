@@ -5,22 +5,14 @@ Created on Tue Nov  5 19:29:45 2019
 
 @author: jauffraybruneton
 """
-
-#train
-#import torch
-#from torchvision import transforms as tr
-#from torch.utils.data.dataset import Dataset
-#from torch.utils.data import DataLoader
-import torch.optim as optim
-from tqdm import tqdm_notebook as tqdm
-import torch.nn as nn
-#import torch.nn.functional as F
-
-from utils.utils import load_checkpoint, save_checkpoint, build_vesselsDataset, build_vesselsLoader
-from models.uNet import UNet
-
 import argparse
 import torch
+import torch.optim as optim
+
+from utils.utils import build_vesselsLoader, load_checkpoint, save_checkpoint
+# from models.uNet import UNet
+# Let us use this implementation, it looks better
+from models.unet_jvanvugt.unet import UNet as unet
 
 # argument parsing
 parser = argparse.ArgumentParser()
@@ -30,7 +22,15 @@ parser.add_argument('--lr', default=0.001, help='Learning Rate')
 parser.add_argument('--batch_size', default=4, help='Batch Size')
 parser.add_argument('--experiment_path', default='experiments/my_experiment/',
                     help='Where to store the resulting trained model')
-parser.add_argument('--data_path', default='DRIVE/', help='Where the training data is')
+parser.add_argument('--path_data', default='data/DRIVE/', help='Where the training data is')
+
+def train(model, n_epochs):
+    # your code for training the model for n_epochs goes here, add as many parameters as you need
+    # (e.g. loaders, model, optimizer, loss function, patience, path for saving checkpoints, etc.)
+
+    print('I just trained my model for {:d} epochs!'.format(n_epochs))
+
+    return None
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -39,6 +39,7 @@ if __name__ == '__main__':
     n_epochs = 150
     patience = 10
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print('Using ' + str(device))
     # etc.
 
     # gather parser parameters
@@ -47,104 +48,24 @@ if __name__ == '__main__':
     lr = args.lr
     bs = args.batch_size
     exp_path = args.experiment_path
-    data_path = args.data_path
+    path_data = args.path_data
 
-    print('* Create Dataloaders, for which you want to import get_train_val_loaders() from utils.get_loaders')
-    # your code here, you probably want to use bs
-    print('* Instantiate a model with depth {:d} and {:d} filters in the first layer'.format(d, 2**wf))
+    print('* Creating Dataloaders')
+    train_loader, dev_loader = build_vesselsLoader(path_data, train_proportion=.8, train_batch_sz=4, dev_batch_sz=4)
+    print('* Instantiating a model with depth {:d} and {:d} filters in the first layer'.format(d, 2**wf))
+    model = unet(n_classes=1, in_channels=3, depth=d, wf=wf, batch_norm=True, padding=True, up_mode='upsample').to(device)
+
+    print('* Instantiating SGD optimizer with a learning rate of {:4f}'.format(lr))
     # your code here
-    model = None
-    print('* Instantiate an optimizer (adam, sgd, whatever you like the most) with a learning rate of {:4f}'.format(lr))
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    print('* Instantiating a loss function')
     # your code here
-    optimizer = None
-    print('* Instantiate a loss function here')
-    # your code here
-    criterion = None
+    criterion = torch.nn.BCEWithLogitsLoss()
 
     # etcetera etcetera, and finally train your model
     print('-' * 10)
-    # train(model, n_epochs)
+    train(model, n_epochs)
 
-
-# train_dataset, dev_dataset = build_vesselsDataset()
-# train_loader, dev_loader = build_vesselsLoader(train_dataset, dev_dataset, 1, 2)
-# train_batch = next(iter(train_loader))
-# dev_batch = next(iter(dev_loader))
-#
-# my_unet = UNet(n_channels = 3, n_classes=1)
-# optimizer = optim.SGD(my_unet.parameters(), lr=0.001, momentum=0.9)
-# #my_unet.cuda();
-# criterion = nn.BCELoss()
-# my_unet.train();
-#
-# lowest_loss = 10.0 #we set the loss treshold that starts the params save
-# try:
-#     checkpoint = load_checkpoint(my_unet, optimizer)
-#     lowest_loss = checkpoint['loss']
-#     epoch = checkpoint['epoch']
-# except OSError:
-#     print('No save found. \n')
-# #print(lowest_loss)
-#
-# nr_epochs = 1
-# train_print_rate = 1
-# dev_print_rate = 1
-#
-# for epoch in tqdm(range(nr_epochs)):   # loop over the dataset multiple times
-#     # train
-#     my_unet.train()
-#     running_loss = 0.0
-#     for i, batches in enumerate(train_loader):
-#         # get the inputs; data is a list of [inputs, labels]
-#         image_batch, labels_batch = batches
-#         #image_batch, labels_batch  =image_batch.cuda(), labels_batch.cuda()
-#         # zero the parameter gradients
-#         optimizer.zero_grad()
-#
-#         # forward + backward + optimize
-#         outputs_batch = my_unet(image_batch)
-#         loss = criterion(outputs_batch, labels_batch)
-#         loss.backward()
-#         optimizer.step()
-#
-#         # print statistics
-#         running_loss += loss.item()
-#         if i % train_print_rate == 0:
-#             print('[%d, %5d] lossTrain: %.3f' %
-#                   (epoch + 1, i + 1, running_loss/train_print_rate))
-#             running_loss = 0.0
-#     # end of epoch
-#
-#     # dev
-#     my_unet.eval()
-#     j = 0
-#     total_loss = 0
-#     for j, batches in enumerate(dev_loader):
-#         # get the inputs; data is a list of [inputs, labels]
-#         image_batch, labels_batch = batches
-#         #image_batch, labels_batch = image_batch.cuda(), labels_batch.cuda()
-#
-#         # forward + NO BACKWARD / OPTIMIZE (validation, not training)
-#         outputs_batch = my_unet(image_batch)
-#         loss = criterion(outputs_batch, labels_batch)
-#
-#         # print statistics
-#         running_loss += loss.item()
-#         total_loss += loss.item()
-#         if j % dev_print_rate == 0:
-#             print('[%d, %5d] lossVal: %.3f' %(epoch + 1, j + 1, running_loss/dev_print_rate))
-#             running_loss = 0.0
-#
-#     mean_loss = total_loss / (j + 1)
-#     #print(j)
-#     print('For this epoch: %d, the mean dev loss is %.3f.' %(epoch + 1, mean_loss))
-#
-#     if (mean_loss < lowest_loss):
-#         lowest_loss = mean_loss
-#         save_checkpoint(my_unet, optimizer, mean_loss, epoch)
-#         print('There is a new lowest loss : %.3f.' %mean_loss)
-#
-# print('Finished Training, the lowest loss is %.3f.' %lowest_loss)
 
 
 

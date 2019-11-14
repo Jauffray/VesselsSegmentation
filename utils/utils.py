@@ -18,7 +18,7 @@ import torch
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import DataLoader
 #from torchvision import transforms as tr
-import paired_transforms_tv04 as p_tr
+from . import paired_transforms_tv04 as p_tr
 
 class DRIVE(Dataset):
     def __init__(self, path_to_data, mode='train', proportion=1, transforms=None, label_values=None):
@@ -116,10 +116,10 @@ def build_vesselsLoader(path_data, train_proportion=.8, train_batch_sz=4, dev_ba
 
 #Load the best model and optimizer, also handling the lack of save
 def load_checkpoint(model, optimizer, PATH_TO_SAVE):
-        checkpoint = torch.load(PATH_TO_SAVE)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        return checkpoint
+    checkpoint = torch.load(PATH_TO_SAVE)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    return checkpoint
 
 #create function save
 def save_checkpoint(my_unet, optimizer, loss, epoch, PATH_TO_SAVE):
@@ -128,7 +128,7 @@ def save_checkpoint(my_unet, optimizer, loss, epoch, PATH_TO_SAVE):
                 'model_state_dict': my_unet.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': loss
-                }, PATH_TO_SAVE)
+                }, PATH_TO_SAVE) # I don't understand this, consider using the function I wrote in the nb
 
 if __name__ == '__main__':
     # some basic testing to see if this works properly
