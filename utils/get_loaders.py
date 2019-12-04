@@ -1,9 +1,6 @@
-import torch
-
-from torch.utils.data import random_split
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import DataLoader
-import paired_transforms_tv04 as p_tr
+from . import paired_transforms_tv04 as p_tr
 
 import os
 import os.path as osp
@@ -66,6 +63,37 @@ class DRIVE(Dataset):
         return len(self.im_list)
 
 
+class DRIVE_test(Dataset):
+    def __init__(self, path_to_data, tg_size, subset='test'):
+        self.path_to_data = osp.join(path_to_data, subset)
+
+        self.tg_size = tg_size
+        self.im_list = sorted(os.listdir(osp.join(self.path_to_data, 'images')))
+        self.mask_list = sorted(os.listdir(osp.join(self.path_to_data, 'mask')))
+        num_ims = len(self.im_list)
+
+    def crop_to_fov(self, img, mask):
+        minr, minc, maxr, maxc = regionprops(np.array(mask))[0].bbox
+        im_crop = Image.fromarray(np.array(img)[minr:maxr, minc:maxc])
+        return im_crop, [minr, minc, maxr, maxc]
+
+    def __getitem__(self, index):
+        # load image and mask
+        img = Image.open(osp.join(self.path_to_data, 'images', self.im_list[index]))
+        mask = Image.open(osp.join(self.path_to_data, 'mask', self.mask_list[index]))
+        img, coords_crop = self.crop_to_fov(img, mask)
+        original_sz = img.size[1], img.size[0]  # in numpy convention
+
+        rsz = p_tr.Resize(self.tg_size)
+        tnsr = p_tr.ToTensor()
+        tr = p_tr.Compose([rsz, tnsr])
+        img = tr(img)  # only transform image
+
+        return img, np.array(mask).astype(bool), coords_crop, original_sz, self.im_list[index]
+
+    def __len__(self):
+        return len(self.im_list)
+
 def get_train_val_datasets(path_data, train_proportion=.8):
     train_dataset = DRIVE(path_data, mode='train', proportion=train_proportion, label_values=[0, 255])
     val_dataset = DRIVE(path_data, mode='val', proportion=train_proportion, label_values=[0, 255])
@@ -106,28 +134,10 @@ def get_train_val_loaders(path_data, train_proportion=.8, batch_size=4):
     
     return train_loader, val_loader
 
+def get_test_dataset(path_data, tg_size=(512,512), subset='test'):
 
-def get_test_dataset(path_data):
-    test_dataset = DRIVE(path_data, mode='test', proportion=1, label_values=[0, 255])
-
-    # transforms
-    size = 512, 512
-    resize = p_tr.Resize(size)
-
-    tensorizer = p_tr.ToTensor()
-
-    test_transforms = p_tr.Compose([resize, tensorizer])
-    test_dataset.transforms = test_transforms
+    test_dataset = DRIVE_test(path_data, tg_size=tg_size, subset=subset)
 
     return test_dataset
-
-def get_test_loader(path_data, batch_size=4):
-
-    test_dataset = get_test_dataset(path_data)
-
-    test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, num_workers=8, shuffle=True)
-
-    
-    return test_loader
 
 

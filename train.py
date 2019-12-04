@@ -11,26 +11,27 @@ import torch.optim as optim
 import numpy as np 
 import os
 import os.path as osp
-from sklearn.metrics import roc_auc_score
 
-from utils.utils import build_vesselsLoader, load_checkpoint, save_checkpoint
-# from models.uNet import UNet
+from utils.get_loaders import get_train_val_loaders
+from evaluation.evaluation import evaluate, ewma
+from sklearn.metrics import roc_auc_score
+from utils.utils import load_checkpoint, save_checkpoint
+
 # Let us use this implementation, it looks better
 from models.unet_jvanvugt.unet import UNet as unet
 
 # argument parsing
 parser = argparse.ArgumentParser()
-parser.add_argument('--depth', default=3, help='depth of the network')
-parser.add_argument('--wf', default=3, help='number of filters in the first layer is 2**wf')
+parser.add_argument('--depth', default=5, help='depth of the network')
+parser.add_argument('--wf', default=6, help='number of filters in the first layer is 2**wf')
 parser.add_argument('--lr', default=0.001, help='Learning Rate')
-parser.add_argument('--train_batch_size', default=4, help='Train Batch Size')
-parser.add_argument('--val_batch_size', default=4, help='Validation Batch Size')
-parser.add_argument('--experiment_path', default='experiments/my_experiment/',
+parser.add_argument('--batch_size', default=4, help='Train and validation batch size')
+parser.add_argument('--experiment_path', default='default_experiment',
                     help='Where to store the resulting trained model')
-parser.add_argument('--path_data', default='data/DRIVE/', help='Where the training data is')
+parser.add_argument('--path_data', default='DRIVE', help='Where the training data is')
 parser.add_argument('--train_proportion', default=0.8, help='The ratio train_dataset / test_dataset')
-parser.add_argument('--n_epochs', default=20, help='Number of epochs in the training  loop')
-parser.add_argument('--patience', default=10, help='Patience defined for early stopping')
+parser.add_argument('--n_epochs', default=300, help='Number of epochs in the training  loop')
+parser.add_argument('--patience', default=20, help='Patience defined for early stopping')
 
 
 
@@ -65,53 +66,24 @@ def run_one_epoch(loader, model, criterion, optimizer=None):
         
     return logits_all, labels_all, run_loss
 
-
-def evaluate(logits, labels):
-    all_preds = []
-    all_targets = []
-
-    for i in range(len(logits)):
-        prediction = torch.sigmoid(logits[i][0]).detach().cpu().numpy()
-        target = labels[i][0].cpu().numpy()
-
-        all_preds.append(prediction.ravel())
-        all_targets.append(target.ravel())
-
-    all_preds_np = np.hstack(all_preds).ravel()
-    all_targets_np = np.hstack(all_targets).ravel()
-    
-    return roc_auc_score(all_targets_np, all_preds_np)
-
-def save_model(path, model, optimizer, best_val_auc= None):
-    os.makedirs(path, exist_ok=True)
-    torch.save({
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'best_val_auc':best_val_auc
-            }, osp.join(path, 'checkpoint.pth'))
-
-def load_model(model, optimizer, path):
-    if os.path.exists(path):
-        checkpoint = torch.load(path)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        return checkpoint
-    else:
-        print("No save available")
-        return False
-
-
 def train(model, n_epochs, patience, criterion, optimizer, train_loader, val_loader, path_checkpoint):
     # your code for training the model for n_epochs goes here, add as many parameters as you need
     # (e.g. loaders, model, optimizer, loss function, patience, path for saving checkpoints, etc.)
+    tr_losses, tr_aucs, vl_losses, vl_aucs = [], [], [], []
+    stats = {}
     
     counter_since_checkpoint = 0
     best_val_auc = 0
-    #best_val_loss = np.inf     
-    checkpoint = load_model(model, optimizer, osp.join(path_checkpoint, 'checkpoint.pth'))
-    if checkpoint:
-        best_val_auc = checkpoint['best_val_auc']
-        print("Successful loading, loaded best_val_auc = {}".format(best_val_auc))
+    lowest_loss = 10000
+    if os.path.exists(path_checkpoint):
+        checkpoint = load_checkpoint(model, optimizer, path_checkpoint)
+        stats = checkpoint['stats']
+        tr_losses, tr_aucs, vl_losses, vl_aucs = stats['tr_losses'],stats['vl_losses'],stats['tr_aucs'],stats['vl_aucs'] 
+        best_val_auc = vl_aucs[-1]
+        lowest_loss = vl_losses[-1]
+        print("Successful loading, loaded best_val_auc = {:.4f}, lowest_loss = {:.4f}".format(best_val_auc, lowest_loss))
+    else:
+        print('No checkpoint available.')    
         
     for epoch in range(n_epochs):
         print('\n EPOCH: {:d}/{:d}'.format(epoch+1, n_epochs))
@@ -121,21 +93,27 @@ def train(model, n_epochs, patience, criterion, optimizer, train_loader, val_loa
         # validate one epoch, note no optimizer is passed
         with torch.no_grad():
             val_logits, val_labels, val_loss = run_one_epoch(val_loader, model, criterion)
-
         val_auc = evaluate(val_logits, val_labels)
 
         # store performance for this epoch
-#         tr_losses.append(train_loss)
-#         tr_aucs.append(train_auc)
-
-#         vl_losses.append(val_loss)
-#         vl_aucs.append(val_auc)
-
+        tr_losses.append(train_loss)
+        tr_aucs.append(train_auc)
+        vl_losses.append(val_loss)
+        vl_aucs.append(val_auc)
+        
+        print ('Validation scores: val_auc: {:.4f}, val_loss: {:.4f}'.format(val_auc, val_loss))
         # check if performance was better than anyone before and checkpoint if so
+        # we first smooth values with a moving average
+        vl_aucs_smoothed = ewma(vl_aucs)
+        val_auc = vl_aucs_smoothed[-1]
         if val_auc > best_val_auc:
             print('\n Best AUC attained, checkpointing. {:.4f} > {:.4f}'.format(val_auc, best_val_auc))
             best_val_auc = val_auc
-            save_model(path_checkpoint, model, optimizer, val_auc)
+            stats['tr_losses'] = tr_losses
+            stats['vl_losses'] = vl_losses
+            stats['tr_aucs'] = tr_aucs
+            stats['vl_aucs'] = vl_aucs
+            save_checkpoint(model, optimizer, stats, path_checkpoint)
             counter_since_checkpoint = 0 # reset patience
         else:
             counter_since_checkpoint += 1
@@ -159,18 +137,18 @@ if __name__ == '__main__': #only if script is run directly, not if it is importe
     d = int(args.depth)
     wf = int(args.wf)
     lr = float(args.lr)
-    trbs = int(args.train_batch_size)
-    vabs = int(args.val_batch_size)
+    bs = int(args.batch_size)
     tp = float(args.train_proportion)
     ep = int(args.n_epochs)
     pt = int(args.patience)
-    exp_path = args.experiment_path
-    path_data = args.path_data
+    exp_path = osp.join('experiments', args.experiment_path)
+    path_data = osp.join('data', args.path_data)
 
     # default parameters build the unet from the original paper
-    print('* Creating Dataloaders, with train_proportion = {}, train_batch_size = {} and validation_batch_size = {}'
-          .format(tp, trbs, vabs))
-    train_loader, val_loader = build_vesselsLoader(path_data, train_proportion=tp, train_batch_sz=trbs, dev_batch_sz=vabs)
+    print('* Creating Dataloaders, with train_proportion = {}, train and validation batch_size = {}'
+          .format(tp, bs))
+    print('path_data: {}'.format(path_data))
+    train_loader, val_loader = get_train_val_loaders(path_data, train_proportion=tp, batch_size=bs)
     print('* Instantiating a model with depth {:d} and {:d} filters in the first layer'.format(d, 2**wf))
     print('* Instantiating a loss function')
     #model = unet(n_classes=1, in_channels=3, padding=True, up_mode='upsample').to(device)    

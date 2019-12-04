@@ -122,13 +122,19 @@ def load_checkpoint(model, optimizer, PATH_TO_SAVE):
     return checkpoint
 
 #create function save
-def save_checkpoint(my_unet, optimizer, loss, epoch, PATH_TO_SAVE):
+def save_checkpoint(my_unet, optimizer, stats, PATH_TO_SAVE, epoch=0):
     torch.save({
                 'epoch': epoch,
                 'model_state_dict': my_unet.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss
+                'stats': stats
                 }, PATH_TO_SAVE) # I don't understand this, consider using the function I wrote in the nb
+
+def load_model(model, checkpoint_path):
+    path = checkpoint_path
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    return model, checkpoint['stats']
 
 if __name__ == '__main__':
     # some basic testing to see if this works properly
